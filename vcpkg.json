@@ -1,0 +1,14 @@
+{
+  "name": "file-manager-server",
+  "version-string": "1.0.0",
+  "dependencies": [
+    "gtest",
+    "boost-asio",
+    "boost-beast",
+    "openssl",
+    "boost-uuid",
+    "nlohmann-json",
+    "libpqxx",
+    "jwt-cpp"
+  ]
+}
