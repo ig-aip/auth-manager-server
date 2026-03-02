@@ -7,7 +7,8 @@
 Session_auth::Session_auth(Server_auth& server, std::shared_ptr<ip::tcp::socket> socket, asio::ssl::context& contx) :
     server(server),
     ssl_stream(std::move(*socket), contx),
-    buff(4096)
+    buff(4096),
+    secret(read_jwtSecret_from_file())
 {
     stream_timer = std::make_shared<asio::steady_timer>(ssl_stream.get_executor());
 }
@@ -35,8 +36,7 @@ void Session_auth::do_read()
                      [self](beast::error_code er, size_t bytes){
                          boost::ignore_unused(bytes);
                          if(!er){
-                             self->handle_api();
-
+                            self->handle_api();
                          }
                          else if(er == http::error::end_of_stream || er == asio::ssl::error::stream_truncated){ self->do_close(); }
                          else{
@@ -45,7 +45,7 @@ void Session_auth::do_read()
                      });
 }
 
-void Session_auth::handle_api(){
+void Session_auth::handle_api() try {
     json json_resp;
     http::status status = http::status::ok;
 
@@ -54,39 +54,104 @@ void Session_auth::handle_api(){
 
 
 
-    if(target == "/api/login" && method == http::verb::get){
+    if(target == "/api/login" && method == http::verb::post){
         auto body = json::parse(req.body());
         std::string email = body.value("email", "");
         std::string password = body.value("password", "");
+        auto login = server.database.logIn_user(email, password);
 
-        if(server.database.logIn_user(email, password)){
+        std::string device_id = body.value("device_id", "");
+        std::string device_name = body.value("device_name", "unknownDevice");
+        std::string ip_address = ssl_stream.lowest_layer().remote_endpoint().address().to_string();
 
+        if(device_id.empty()){
+            status = http::status::bad_request;
+            json_resp = {{"status", status}};
+        }
+        else if(login.first == true){
+            std::string refresh_token = server.database.generateSession(login.second, device_id, device_name, ip_address);
+
+            std::string access_token = jwt::create<jwt::traits::nlohmann_json>()
+            .set_issuer("auth-manager-server")
+            .set_type("JWS")
+            .set_payload_claim("uid", login.second)
+            .set_payload_claim("did", device_id)
+            .set_expires_at(std::chrono::system_clock::now() + std::chrono::minutes{1})
+            .sign(jwt::algorithm::hs256(secret));
+
+            json_resp = {{"status", "success"},
+                         {"access_token", access_token},
+                         {"refresh_token", refresh_token}};
+
+        }else if(login.first == false){
+            status = http::status::unauthorized;
+            json_resp = {{"status", status}};
         }
     }
 
-    else if(target == "/api/register" && method == http::verb::get){
+    else if(target == "/api/register" && method == http::verb::post){
         auto body = json::parse(req.body());
         std::string email = body.value("email", "");
         std::string password = body.value("password", "");
         std::string username = body.value("username", "");
         std::string uuid = boost::uuids::to_string(server.database.generate_uuid());
+        std::string refresh_token = boost::uuids::to_string(server.database.generate_uuid());
 
-        if(server.database.register_user(username, email, password, uuid)){
-            auto token = jwt::create<jwt::traits::nlohmann_json>()
-            .set_issuer("auth-manager-server")
-            .set_type("JWS")
-            .set_payload_claim("uuid", uuid)
-            .set_issued_at(std::chrono::system_clock::now())
-            .set_expires_at(std::chrono::system_clock::now() + std::chrono::hours{24})
-            .sign(jwt::algorithm::hs256{read_jwtSecret_from_file()});
+        auto reg = server.database.register_user(username, email, password, uuid, refresh_token);
+
+        std::string device_id = body.value("device_id", "");
+        std::string device_name = body.value("device_name", "unknownDevice");
+        std::string ip_address = ssl_stream.lowest_layer().remote_endpoint().address().to_string();
+
+        if(reg.first == true){
+            std::string refresh_token = server.database.generateSession(reg.second, device_id, device_name, ip_address);
+
+            std::string access_token = jwt::create<jwt::traits::nlohmann_json>()
+                                           .set_issuer("auth-manager-server")
+                                           .set_type("JWS")
+                                           .set_payload_claim("uid", reg.second)
+                                           .set_payload_claim("did", device_id)
+                                           .set_expires_at(std::chrono::system_clock::now() + std::chrono::minutes{1})
+                                           .sign(jwt::algorithm::hs256(secret));
 
             json_resp = {{"status", "success"},
-                         {"token", token}};
+                         {"access_token", access_token},
+                         {"refresh_token", refresh_token}};
+        }
+    }else if(target == "/api/refresh" && method == http::verb::post){
+        if(req.body().empty()){
+            json_resp = {{"out", "out"}};
+        }else {
+            auto body = json::parse(req.body());
+            std::string old_refresh = body.value("refresh_token", "");
+            std::string device_id = body.value("device_id", "");
+            std::string ip_address = ssl_stream.lowest_layer().remote_endpoint().address().to_string();
+
+            auto new_refresh = server.database.refresh_session(old_refresh, device_id, ip_address);
+            if(new_refresh.first.empty()){
+
+                std::string access_token = jwt::create<jwt::traits::nlohmann_json>()
+                                               .set_issuer("auth-manager-server")
+                                               .set_type("JWS")
+                                               .set_payload_claim("uid", new_refresh.second)
+                                               .set_payload_claim("did", device_id)
+                                               .set_expires_at(std::chrono::system_clock::now() + std::chrono::minutes{1})
+                                               .sign(jwt::algorithm::hs256(secret));
+
+                json_resp = {{"status", "success"},
+                             {"access_token", access_token},
+                             {"refresh_token", new_refresh.first}};
+            }else{
+                status = http::status::bad_request;
+                json_resp = {"status", "not found"};
+            }
 
         }
-
     }
-
+    else if(target == "/api/refresh" && method == http::verb::get){
+        auto body = json::parse(req.body());
+        std::string refresh_token = body.value("refresh_token", "");
+    }
     else{
         status = http::status::not_found;
         json_resp = {"status", "not found"};
@@ -112,12 +177,15 @@ void Session_auth::handle_api(){
                           }
                       });
 
+}catch(std::exception& ex){
+    std::cerr << "exception in  handle error " << ex.what() <<"\n";
+    do_close();
 }
 
 std::string Session_auth::read_jwtSecret_from_file()
 {
     std::ifstream file;
-    file.open("jwt_secret.txt", std::ios::in);
+    file.open("secret.txt", std::ios::in);
     if(!file.is_open()){
         throw std::exception{"file not open jwt_secrat.txt"};
     }

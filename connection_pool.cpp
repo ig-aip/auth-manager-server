@@ -8,7 +8,6 @@ std::shared_ptr<pqxx::connection> ConnectionPool::getConn()
     }
 
     auto conn = pool.front();
-    pool.pop();
 
     if(!conn->is_open()){
         conn = std::make_shared<pqxx::connection>(connection_str);
@@ -19,6 +18,19 @@ std::shared_ptr<pqxx::connection> ConnectionPool::getConn()
 
 void ConnectionPool::release(std::shared_ptr<pqxx::connection> oldConn)
 {
+    if(!oldConn){ return; }
+    try{
+        if(oldConn->is_open()){
+            pqxx::work work(*oldConn);
+            work.exec("ROLLBACK");
+            work.commit();
+        }else{
+            return;
+        }
+    }catch(std::exception& ex){
+        std::cerr <<"error in release conn: " << ex.what() <<"\n";
+    }
+
     std::unique_lock<std::mutex> lock(mutex);
     pool.push(oldConn);
     lock.unlock();
@@ -35,7 +47,7 @@ ConnectionPool::ConnectionPool(std::string conn_str, size_t size) :
             if(conn->is_open()){
                 pool.push(conn);
             }
-        } catch (std::exception ex) {
+        } catch (std::exception& ex) {
             std::cerr << "Error in connection pool constructor: " << ex.what() << std::endl;
         }
     }

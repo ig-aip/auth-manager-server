@@ -67,7 +67,7 @@ void Server_auth::start()
                 self->ioc.run();
             }
             catch (std::exception ex) {
-                std::cerr << "error int start poll threads: " << std::endl;
+                std::cerr << "error int start pull threads: " << std::endl;
             }
         });
     }
