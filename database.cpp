@@ -59,7 +59,7 @@ boost::uuids::uuid DataBase::generate_uuid()
     return gen();
 }
 
-std::string DataBase::generateSession(size_t user_id, const std::string &device_id, const std::string &device_name, const std::string &ip)try
+std::string DataBase::generateSession(const std::string& user_uuid, const std::string &device_id, const std::string &device_name, const std::string &ip)try
 {
     ScopedConnection conn(*conn_pool);
     if(!conn->is_open()){ throw std::runtime_error("dataBase conn closed"); }
@@ -70,7 +70,7 @@ std::string DataBase::generateSession(size_t user_id, const std::string &device_
     pqxx::work work(*conn);
 
     std::string query = R"(
-    INSERT INTO sessions (user_id, device_id, device_name, refresh_token_hash, ip_address, expires_at, last_active)
+    INSERT INTO sessions (user_uuid, device_id, device_name, refresh_token_hash, ip_address, expires_at, last_active)
     VALUES($1, $2, $3, $4, $5, NOW() + INTERVAL '60 days', NOW())
     ON CONFLICT(user_id, device_id)
     DO UPDATE SET
@@ -82,7 +82,8 @@ std::string DataBase::generateSession(size_t user_id, const std::string &device_
 
     )";
 
-    work.exec_params(query, user_id, device_id, device_name, ip);
+    pqxx::result result =  work.exec_params(query,user_uuid, device_id, device_name,hash_refresh_token , ip);
+    std::cout << "result: "<< result.query() <<std::endl;
     work.commit();
 
     return raw_refresh_token;
@@ -140,19 +141,15 @@ std::vector<SessionInfo> DataBase::get_user_sessions(size_t user_id, const std::
     )", user_id);
 
     for(const auto& raw : result){
-        SessionInfo info;
-        info.device_name = raw[0].c_str();
-        info.device_id = raw[1].c_str();
-        info.ip_adress = raw[2].c_str();
-        info.last_active = raw[3].c_str();
-        info.is_current = (info.device_id == current_device_id);
-        sessions.push_back(info);
-        sessions.emplace_back(raw[0].c_str(), raw[1].c_str(), raw[2].c_str(), raw[3].c_str(), (info.device_id == current_device_id));
+        sessions.emplace_back(raw[0].c_str(), raw[1].c_str(), raw[2].c_str(), raw[3].c_str(), (raw[1].c_str() == current_device_id));
     }
+
+    return sessions;
+
 
 }catch(std::exception& ex){
     std::cerr << "error in refresh session: " << ex.what() << "\n";
-    return std::vector<SessionInfo>{0};
+    return std::vector<SessionInfo>{};
 }
 
 bool DataBase::delete_session(size_t user_id, const std::string &device_id)try
@@ -208,7 +205,7 @@ std::pair<bool,size_t> DataBase::register_user(const std::string &username, cons
     return std::pair<bool,size_t>{false, 0};
 }
 
-std::pair<bool,size_t> DataBase::logIn_user(const std::string &email, const std::string &password)try
+std::pair<bool,std::string> DataBase::logIn_user(const std::string &email, const std::string &password)try
 {
     std::lock_guard<std::mutex> locl(db_mutex);
 
@@ -217,15 +214,15 @@ std::pair<bool,size_t> DataBase::logIn_user(const std::string &email, const std:
     if(!sConn->is_open()){ throw std::runtime_error("dataBase conn closed"); }
 
     std::string hashed = hash_password(password);
-    pqxx::result result = work.exec_params("SELECT id FROM users WHERE email = $1 AND password_hash = $2", email, hashed);
+    pqxx::result result = work.exec_params("SELECT uuid FROM users WHERE email = $1 AND password_hash = $2", email, hashed);
     if(result.empty()){
-        return std::pair<bool, size_t>{false, 0};
+        return std::pair<bool,std::string>{false, ""};
     }
-    return std::pair<bool, size_t>{true, result[0][0].as<size_t>()};
+    return std::pair<bool,std::string>{true, result[0][0].as<std::string>()};
 
 }catch(std::exception ex){
     std::cerr << "error in get result from DataBase: " << ex.what() << std::endl;
-    return std::pair<bool, size_t>{false, 0};
+    return std::pair<bool,std::string>{false, ""};
 }
 
 bool DataBase::hash_compare_uuid(const std::string &user_UUID, size_t id)

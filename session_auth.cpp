@@ -7,8 +7,7 @@
 Session_auth::Session_auth(Server_auth& server, std::shared_ptr<ip::tcp::socket> socket, asio::ssl::context& contx) :
     server(server),
     ssl_stream(std::move(*socket), contx),
-    buff(4096),
-    secret(read_jwtSecret_from_file())
+    buff(4096)
 {
     stream_timer = std::make_shared<asio::steady_timer>(ssl_stream.get_executor());
 }
@@ -74,10 +73,10 @@ void Session_auth::handle_api() try {
             std::string access_token = jwt::create<jwt::traits::nlohmann_json>()
             .set_issuer("auth-manager-server")
             .set_type("JWS")
-            .set_payload_claim("uid", login.second)
+            .set_payload_claim("uuid", login.second)
             .set_payload_claim("did", device_id)
             .set_expires_at(std::chrono::system_clock::now() + std::chrono::minutes{1})
-            .sign(jwt::algorithm::hs256(secret));
+            .sign(jwt::algorithm::hs256(server.secret));
 
             json_resp = {{"status", "success"},
                          {"access_token", access_token},
@@ -104,19 +103,21 @@ void Session_auth::handle_api() try {
         std::string ip_address = ssl_stream.lowest_layer().remote_endpoint().address().to_string();
 
         if(reg.first == true){
-            std::string refresh_token = server.database.generateSession(reg.second, device_id, device_name, ip_address);
+            std::string refresh_token = server.database.generateSession(uuid, device_id, device_name, ip_address);
 
             std::string access_token = jwt::create<jwt::traits::nlohmann_json>()
                                            .set_issuer("auth-manager-server")
                                            .set_type("JWS")
-                                           .set_payload_claim("uid", reg.second)
+                                           .set_payload_claim("uuid", uuid)
                                            .set_payload_claim("did", device_id)
                                            .set_expires_at(std::chrono::system_clock::now() + std::chrono::minutes{1})
-                                           .sign(jwt::algorithm::hs256(secret));
+                                           .sign(jwt::algorithm::hs256(server.secret));
 
             json_resp = {{"status", "success"},
                          {"access_token", access_token},
                          {"refresh_token", refresh_token}};
+
+            std::cout << json_resp << std::endl;
         }
     }else if(target == "/api/refresh" && method == http::verb::post){
         if(req.body().empty()){
@@ -133,10 +134,10 @@ void Session_auth::handle_api() try {
                 std::string access_token = jwt::create<jwt::traits::nlohmann_json>()
                                                .set_issuer("auth-manager-server")
                                                .set_type("JWS")
-                                               .set_payload_claim("uid", new_refresh.second)
+                                               .set_payload_claim("uuid", new_refresh.second)
                                                .set_payload_claim("did", device_id)
                                                .set_expires_at(std::chrono::system_clock::now() + std::chrono::minutes{1})
-                                               .sign(jwt::algorithm::hs256(secret));
+                                               .sign(jwt::algorithm::hs256(server.secret));
 
                 json_resp = {{"status", "success"},
                              {"access_token", access_token},
@@ -182,18 +183,7 @@ void Session_auth::handle_api() try {
     do_close();
 }
 
-std::string Session_auth::read_jwtSecret_from_file()
-{
-    std::ifstream file;
-    file.open("secret.txt", std::ios::in);
-    if(!file.is_open()){
-        throw std::exception{"file not open jwt_secrat.txt"};
-    }
 
-    std::string result;
-    std::getline(file, result);
-    return result;
-}
 
 
 void Session_auth::do_close()

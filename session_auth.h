@@ -19,14 +19,12 @@ class Session_auth : public std::enable_shared_from_this<Session_auth>
     http::request<http::string_body> req;
     std::vector<char> buff;
     std::shared_ptr<asio::steady_timer> stream_timer;
-    std::string secret;
+
 
     void do_read();
     void do_close();
 
     void handle_api();
-
-    std::string read_jwtSecret_from_file();
 
 
 public:

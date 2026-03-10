@@ -25,7 +25,7 @@ void ConnectionPool::release(std::shared_ptr<pqxx::connection> oldConn)
             work.exec("ROLLBACK");
             work.commit();
         }else{
-            return;
+            oldConn = std::make_shared<pqxx::connection>(connection_str);
         }
     }catch(std::exception& ex){
         std::cerr <<"error in release conn: " << ex.what() <<"\n";

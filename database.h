@@ -29,9 +29,20 @@ public:
 struct SessionInfo{
     std::string device_name;
     std::string device_id;
-    std::string ip_adress;
+    std::string ip_address;
     std::string last_active;
     bool is_current;
+
+    SessionInfo(std::string device_name_, std::string device_id_, std::string ip_address_, std::string last_active_, bool is_current_)
+        : device_name(device_name_), device_id(device_id_), ip_address(ip_address_), last_active(last_active_), is_current(is_current_)
+    {
+
+    }
+
+    SessionInfo(): is_current(false)
+    {
+
+    }
 };
 
 
@@ -52,7 +63,7 @@ class DataBase
 
 public:
     std::pair<bool,size_t> register_user(const::std::string& username, const std::string& email,  const std::string& password, const std::string& uuid, const std::string& refresh_token);
-    std::pair<bool,size_t> logIn_user(const std::string& email, const::std::string& password);
+    std::pair<bool,std::string> logIn_user(const std::string& email, const::std::string& password);
 
     bool hash_compare_uuid(const std::string& user_UUID, size_t id);
     bool hash_compare_password(const std::string& user_password, const std::string& email);
@@ -63,7 +74,7 @@ public:
 
     boost::uuids::uuid generate_uuid();
 
-    std::string generateSession(size_t user_id, const std::string& device_id, const std::string& device_name, const std::string& ip);
+    std::string generateSession(const std::string& user_id, const std::string& device_id, const std::string& device_name, const std::string& ip);
     std::pair<std::string, size_t> refresh_session(const std::string& old_rt, const std::string& current_device_id, const std::string& ip);
     std::vector<SessionInfo> get_user_sessions(size_t user_id, const std::string& current_device_id);
     bool delete_session(size_t user_id, const std::string& device_id);

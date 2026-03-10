@@ -14,7 +14,10 @@ class Server_auth : public std::enable_shared_from_this<Server_auth>
 
     void start_acceptor();
 
+    std::string read_jwtSecret_from_file();
+
 public:
+    const std::string secret;
     DataBase database;
     void start();
     void load_server_certificate(asio::ssl::context& contx);

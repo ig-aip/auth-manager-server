@@ -7,7 +7,8 @@
 Server_auth::Server_auth()  :
     ioc(),
     acceptor(ioc),
-    ctx(ssl::context::tls_server)
+    ctx(ssl::context::tls_server),
+    secret(read_jwtSecret_from_file())
 {
     boost::system::error_code er;
     acceptor.open(ip::tcp::endpoint{ip::make_address_v4(IP), PORT}.protocol(), er);
@@ -49,6 +50,19 @@ void Server_auth::start_acceptor()
             throw std::runtime_error("error in accept: " + er.message());
         }
     });
+}
+
+std::string Server_auth::read_jwtSecret_from_file()
+{
+    std::ifstream file;
+    file.open("secret.txt", std::ios::in);
+    if(!file.is_open()){
+        throw std::exception{"file not open jwt_secrat.txt"};
+    }
+
+    std::string result;
+    std::getline(file, result);
+    return result;
 }
 
 void Server_auth::start()
