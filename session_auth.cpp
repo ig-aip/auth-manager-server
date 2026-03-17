@@ -101,8 +101,11 @@ void Session_auth::handle_api() try {
         std::string device_id = body.value("device_id", "");
         std::string device_name = body.value("device_name", "unknownDevice");
         std::string ip_address = ssl_stream.lowest_layer().remote_endpoint().address().to_string();
-
-        if(reg.first == true){
+        if(device_id.empty()){
+            status = http::status::bad_request;
+            json_resp = {{"status", status}};
+        }
+        else if(reg.first == true){
             std::string refresh_token = server.database.generateSession(uuid, device_id, device_name, ip_address);
 
             std::string access_token = jwt::create<jwt::traits::nlohmann_json>()
@@ -127,9 +130,12 @@ void Session_auth::handle_api() try {
             std::string old_refresh = body.value("refresh_token", "");
             std::string device_id = body.value("device_id", "");
             std::string ip_address = ssl_stream.lowest_layer().remote_endpoint().address().to_string();
-
             auto new_refresh = server.database.refresh_session(old_refresh, device_id, ip_address);
-            if(new_refresh.first.empty()){
+            if(device_id.empty()){
+                status = http::status::bad_request;
+                json_resp = {{"status", status}};
+            }
+            else if(!new_refresh.first.empty()){
 
                 std::string access_token = jwt::create<jwt::traits::nlohmann_json>()
                                                .set_issuer("auth-manager-server")
@@ -144,19 +150,17 @@ void Session_auth::handle_api() try {
                              {"refresh_token", new_refresh.first}};
             }else{
                 status = http::status::bad_request;
-                json_resp = {"status", "not found"};
+                json_resp = {{"status", "not found"}};
             }
 
         }
     }
-    else if(target == "/api/refresh" && method == http::verb::get){
-        auto body = json::parse(req.body());
-        std::string refresh_token = body.value("refresh_token", "");
-    }
     else{
         status = http::status::not_found;
-        json_resp = {"status", "not found"};
+        json_resp = {{"status", "not found"}};
     }
+
+    std::cout << "json: " << json_resp << std::endl;
 
     auto resp = std::make_shared<http::response<http::string_body>>(status, req.version());
     resp->set(http::field::server, "asio Igore-Corp authenticate server");

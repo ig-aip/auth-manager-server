@@ -74,8 +74,8 @@ public:
 
     boost::uuids::uuid generate_uuid();
 
-    std::string generateSession(const std::string& user_id, const std::string& device_id, const std::string& device_name, const std::string& ip);
-    std::pair<std::string, size_t> refresh_session(const std::string& old_rt, const std::string& current_device_id, const std::string& ip);
+    std::string generateSession(const std::string& user_uuid, const std::string& device_id, const std::string& device_name, const std::string& ip);
+    std::pair<std::string, std::string> refresh_session(const std::string& old_rt, const std::string& current_device_id, const std::string& ip);
     std::vector<SessionInfo> get_user_sessions(size_t user_id, const std::string& current_device_id);
     bool delete_session(size_t user_id, const std::string& device_id);
     bool delete_other_sessions(size_t user_id, const std::string& current_device_id);

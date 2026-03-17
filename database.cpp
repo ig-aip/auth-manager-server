@@ -71,8 +71,8 @@ std::string DataBase::generateSession(const std::string& user_uuid, const std::s
 
     std::string query = R"(
     INSERT INTO sessions (user_uuid, device_id, device_name, refresh_token_hash, ip_address, expires_at, last_active)
-    VALUES($1, $2, $3, $4, $5, NOW() + INTERVAL '60 days', NOW())
-    ON CONFLICT(user_id, device_id)
+    VALUES($1, $2, $3, $4, $5,NOW() + INTERVAL '60 days', NOW())
+    ON CONFLICT(device_id)
     DO UPDATE SET
         refresh_token_hash = EXCLUDED.refresh_token_hash,
         device_name = EXCLUDED.device_name,
@@ -93,7 +93,7 @@ std::string DataBase::generateSession(const std::string& user_uuid, const std::s
     return "";
 }
 
-std::pair<std::string, size_t> DataBase::refresh_session(const std::string &old_rt, const std::string &current_device_id, const std::string &ip)try
+std::pair<std::string, std::string> DataBase::refresh_session(const std::string &old_rt, const std::string &current_device_id, const std::string &ip)try
 {
     ScopedConnection conn(*conn_pool);
     if(!conn->is_open()){ throw std::runtime_error("dataBase conn closed"); }
@@ -102,30 +102,30 @@ std::pair<std::string, size_t> DataBase::refresh_session(const std::string &old_
     std::string old_hash = hash_sha256(old_rt);
 
     pqxx::result result = work.exec_params(R"(
-    SELECT id FROM sessions WHERE device_id = $1 AND refresh_token = $2 AND expires_at > NOW())", current_device_id, old_hash);
+    SELECT user_uuid FROM sessions WHERE device_id = $1 AND refresh_token_hash = $2 AND expires_at > NOW())", current_device_id, old_hash);
+    std::cout  << " hash: " << old_hash << " old rt: " << old_rt << std::endl;
 
     if(result.empty()){
         //мб добавть потом проверку на совпадение refresh_tokena, если не совпал значит какой то хацкер - убить все сессии
-        return std::pair<std::string, size_t>{"", 0};
+        return std::pair<std::string, std::string>{"", ""};
     }
 
-    size_t session_id = result[0][0].as<std::size_t>();
-    size_t user_id = result[0][1].as<size_t>();
+    std::string user_uuid = result[0][0].as<std::string>();
 
     std::string new_raw_token = boost::uuids::to_string(generate_uuid());
     std::string new_hash_token = hash_sha256(new_raw_token);
 
     work.exec_params(R"(
     UPDATE sessions
-    SET refresh_token_hash = $1, last_active = NOW(), ip_address = $2 WHERE id = $3)", new_hash_token,ip, session_id);
+    SET refresh_token_hash = $1, last_active = NOW(), ip_address = $2 WHERE user_uuid = $3)", new_hash_token,ip, user_uuid);
 
     work.commit();
-    return std::pair<std::string, size_t>{new_raw_token, 0};
+    return std::pair<std::string, std::string>{new_raw_token, user_uuid};
 
 
 }catch(std::exception& ex){
     std::cerr << "error in refresh session: " << ex.what() << "\n";
-    return std::pair<std::string, size_t>{"", 0};
+    return std::pair<std::string, std::string>{"", ""};
 }
 
 std::vector<SessionInfo> DataBase::get_user_sessions(size_t user_id, const std::string &current_device_id)try
