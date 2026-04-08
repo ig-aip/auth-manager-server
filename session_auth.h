@@ -20,15 +20,20 @@ class Session_auth : public std::enable_shared_from_this<Session_auth>
     std::vector<char> buff;
     std::shared_ptr<asio::steady_timer> stream_timer;
 
+    void set_timeout(size_t seconds);
+
 
     void do_read();
     void do_close();
+
+    std::string generate_access_token(const std::string& uuid, const std::string& device_id, const std::string& username);
+    std::pair<bool, json> get_json(const std::string &body);
 
     void handle_api();
 
 
 public:
-    Session_auth(Server_auth& server, std::shared_ptr<ip::tcp::socket> socket, asio::ssl::context& contx);
+    Session_auth(Server_auth& server, tcp::socket&& socket, asio::ssl::context& contx);
     void run();
 };
 

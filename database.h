@@ -6,6 +6,7 @@
 #include <boost/asio.hpp>
 #include <iostream>
 #include <boost/uuid.hpp>
+#include <tuple>
 #include "connection_pool.h"
 
 
@@ -62,8 +63,8 @@ class DataBase
 
 
 public:
-    std::pair<bool,size_t> register_user(const::std::string& username, const std::string& email,  const std::string& password, const std::string& uuid, const std::string& refresh_token);
-    std::pair<bool,std::string> logIn_user(const std::string& email, const::std::string& password);
+    std::tuple<bool,size_t, std::string> register_user(const::std::string& username, const std::string& email,  const std::string& password, const std::string& uuid, const std::string& refresh_token);
+    std::tuple<bool,std::string, std::string> logIn_user(const std::string& email, const::std::string& password);
 
     bool hash_compare_uuid(const std::string& user_UUID, size_t id);
     bool hash_compare_password(const std::string& user_password, const std::string& email);
@@ -72,10 +73,12 @@ public:
 
     std::string getNewRefresh(const std::string& old);
 
+    std::vector<std::pair<std::string, std::string>> search_users(const std::string& query);
+
     boost::uuids::uuid generate_uuid();
 
     std::string generateSession(const std::string& user_uuid, const std::string& device_id, const std::string& device_name, const std::string& ip);
-    std::pair<std::string, std::string> refresh_session(const std::string& old_rt, const std::string& current_device_id, const std::string& ip);
+    std::tuple<std::string, std::string, std::string> refresh_session(const std::string& old_rt, const std::string& current_device_id, const std::string& ip);
     std::vector<SessionInfo> get_user_sessions(size_t user_id, const std::string& current_device_id);
     bool delete_session(size_t user_id, const std::string& device_id);
     bool delete_other_sessions(size_t user_id, const std::string& current_device_id);

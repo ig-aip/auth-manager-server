@@ -1,6 +1,4 @@
 #include "server_auth.h"
-
-#include "Server_auth.h"
 #include "algorithm"
 
 
@@ -39,15 +37,17 @@ Server_auth::Server_auth()  :
 void Server_auth::start_acceptor()
 {
 
-    auto sock = std::make_shared<ip::tcp::socket>(ioc);
+
+    ip::tcp::socket sock(ioc);
     auto self = shared_from_this();
-    acceptor.async_accept(*sock, [self, sock](boost::system::error_code er){
+    acceptor.async_accept(ioc, [self](boost::system::error_code er, tcp::socket sock){
         if(!er){
-            auto session = std::make_shared<Session_auth>(*self, sock, self->ctx);
+            auto session = std::make_shared<Session_auth>(*self, std::move(sock), self->ctx);
             session->run();
             self->start_acceptor();
         }else{
-            throw std::runtime_error("error in accept: " + er.message());
+            std::cerr << "error in accept: " << er.message();
+            self->start_acceptor();
         }
     });
 }
@@ -57,7 +57,7 @@ std::string Server_auth::read_jwtSecret_from_file()
     std::ifstream file;
     file.open("secret.txt", std::ios::in);
     if(!file.is_open()){
-        throw std::exception{"file not open jwt_secrat.txt"};
+        throw std::runtime_error{"file not open jwt_secrat.txt"};
     }
 
     std::string result;
@@ -80,7 +80,7 @@ void Server_auth::start()
             try {
                 self->ioc.run();
             }
-            catch (std::exception ex) {
+            catch (std::exception& ex) {
                 std::cerr << "error int start pull threads: " << std::endl;
             }
         });
@@ -101,7 +101,7 @@ void Server_auth::load_server_certificate(asio::ssl::context& contx){
         contx.use_certificate_chain_file("server.crt");
         contx.use_private_key_file("server.key", asio::ssl::context::pem);
     }
-    catch (std::exception ex) {
+    catch (std::exception& ex) {
         std::cout << "exception in load certificate" << std::endl;
     }
 

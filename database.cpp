@@ -74,6 +74,7 @@ std::string DataBase::generateSession(const std::string& user_uuid, const std::s
     VALUES($1, $2, $3, $4, $5,NOW() + INTERVAL '60 days', NOW())
     ON CONFLICT(device_id)
     DO UPDATE SET
+        user_uuid = EXCLUDED.user_uuid,
         refresh_token_hash = EXCLUDED.refresh_token_hash,
         device_name = EXCLUDED.device_name,
         ip_address = EXCLUDED.ip_address,
@@ -83,7 +84,7 @@ std::string DataBase::generateSession(const std::string& user_uuid, const std::s
     )";
 
     pqxx::result result =  work.exec_params(query,user_uuid, device_id, device_name,hash_refresh_token , ip);
-    std::cout << "result: "<< result.query() <<std::endl;
+    std::cout << "result: "<< result.query() << " user uuid: " << user_uuid <<std::endl;
     work.commit();
 
     return raw_refresh_token;
@@ -93,7 +94,7 @@ std::string DataBase::generateSession(const std::string& user_uuid, const std::s
     return "";
 }
 
-std::pair<std::string, std::string> DataBase::refresh_session(const std::string &old_rt, const std::string &current_device_id, const std::string &ip)try
+std::tuple<std::string, std::string, std::string> DataBase::refresh_session(const std::string &old_rt, const std::string &current_device_id, const std::string &ip)try
 {
     ScopedConnection conn(*conn_pool);
     if(!conn->is_open()){ throw std::runtime_error("dataBase conn closed"); }
@@ -105,12 +106,19 @@ std::pair<std::string, std::string> DataBase::refresh_session(const std::string 
     SELECT user_uuid FROM sessions WHERE device_id = $1 AND refresh_token_hash = $2 AND expires_at > NOW())", current_device_id, old_hash);
     std::cout  << " hash: " << old_hash << " old rt: " << old_rt << std::endl;
 
+
+
     if(result.empty()){
         //мб добавть потом проверку на совпадение refresh_tokena, если не совпал значит какой то хацкер - убить все сессии
-        return std::pair<std::string, std::string>{"", ""};
+        return std::make_tuple("", "", "");
     }
-
+    std::cerr << "refresh_toke uuid: " << result[0][0].as<std::string>() << std::endl;
     std::string user_uuid = result[0][0].as<std::string>();
+    std::cout << "refresh_toke uuid: " << user_uuid << std::endl;
+    result = work.exec_params(R"(SELECT username FROM users WHERE uuid = $1)", user_uuid);
+    std::string username = result[0][0].as<std::string>();
+
+    std::cout << "username refresh_session: " << username << std::endl;
 
     std::string new_raw_token = boost::uuids::to_string(generate_uuid());
     std::string new_hash_token = hash_sha256(new_raw_token);
@@ -120,12 +128,12 @@ std::pair<std::string, std::string> DataBase::refresh_session(const std::string 
     SET refresh_token_hash = $1, last_active = NOW(), ip_address = $2 WHERE user_uuid = $3)", new_hash_token,ip, user_uuid);
 
     work.commit();
-    return std::pair<std::string, std::string>{new_raw_token, user_uuid};
+    return std::make_tuple(new_raw_token, user_uuid, username);
 
 
 }catch(std::exception& ex){
     std::cerr << "error in refresh session: " << ex.what() << "\n";
-    return std::pair<std::string, std::string>{"", ""};
+    return std::make_tuple("", "", "");
 }
 
 std::vector<SessionInfo> DataBase::get_user_sessions(size_t user_id, const std::string &current_device_id)try
@@ -167,24 +175,29 @@ bool DataBase::delete_session(size_t user_id, const std::string &device_id)try
     return false;
 }
 
-std::pair<bool,size_t> DataBase::register_user(const std::string &username, const std::string &email, const std::string &password, const std::string& uuid, const std::string& refresh_token)try
+std::tuple<bool,size_t, std::string> DataBase::register_user(const std::string &username, const std::string &email, const std::string &password, const std::string& uuid, const std::string& refresh_token)try
 {
     std::lock_guard<std::mutex> lock(db_mutex);
 
     std::cout << "user: " << username << "email: " << email << "password: " << password << std::endl;
     ScopedConnection sConn(*conn_pool);
-    if(!sConn->is_open()){ throw std::runtime_error("dataBase conn closed"); }
+    if(!sConn->is_open()){
+        std::cout << "Conn is not open" << std::endl;
+        throw std::runtime_error("dataBase conn closed");
+    }
     pqxx::work work(*sConn);
     pqxx::result result;
 
     result = work.exec_params("SELECT id FROM users WHERE username = $1", username);
     if(!result.empty()){
-        return std::pair<bool,size_t>{false, 0};
+        std::cout << "duplicate: " << username << std::endl;
+        return std::make_tuple(false, 0, username);
     }
 
     result = work.exec_params("SELECT id FROM users WHERE email = $1", email);
     if(!result.empty()){
-        return std::pair<bool,size_t>{false, 0};
+        std::cout << "duplicate: " << email << std::endl;
+        return std::make_tuple(false, 0, username);
     }
 
 
@@ -197,15 +210,16 @@ std::pair<bool,size_t> DataBase::register_user(const std::string &username, cons
                               , username, email, hashedPass, hashUUID, refresh_token);
     std::cout << " id: "<< result[0][0].as<int>() << std::endl;
     work.commit();
-    return std::pair<bool,size_t>{true, result[0][0].as<std::size_t>()};
+    return std::make_tuple(true, result[0][0].as<std::size_t>(), username);
 
 
 }catch(std::exception ex){
     std::cerr << "error in get result from DataBase: " << ex.what() << std::endl;
-    return std::pair<bool,size_t>{false, 0};
+        return std::make_tuple(false, 0, username);
 }
 
-std::pair<bool,std::string> DataBase::logIn_user(const std::string &email, const std::string &password)try
+//tuple(is_successfull, user_uuid, username)
+std::tuple<bool,std::string, std::string> DataBase::logIn_user(const std::string &email, const std::string &password)try
 {
     std::lock_guard<std::mutex> locl(db_mutex);
 
@@ -214,18 +228,18 @@ std::pair<bool,std::string> DataBase::logIn_user(const std::string &email, const
     if(!sConn->is_open()){ throw std::runtime_error("dataBase conn closed"); }
 
     std::string hashed = hash_password(password);
-    pqxx::result result = work.exec_params("SELECT uuid FROM users WHERE email = $1 AND password_hash = $2", email, hashed);
+    pqxx::result result = work.exec_params("SELECT uuid, username FROM users WHERE email = $1 AND password_hash = $2", email, hashed);
     if(result.empty()){
-        return std::pair<bool,std::string>{false, ""};
+        return std::make_tuple(false, "", "");
     }
-    return std::pair<bool,std::string>{true, result[0][0].as<std::string>()};
+    return std::make_tuple(true, result[0][0].as<std::string>(), result[0][1].as<std::string>());
 
-}catch(std::exception ex){
+}catch(std::exception& ex){
     std::cerr << "error in get result from DataBase: " << ex.what() << std::endl;
-    return std::pair<bool,std::string>{false, ""};
+    return std::make_tuple(false, "", "");
 }
 
-bool DataBase::hash_compare_uuid(const std::string &user_UUID, size_t id)
+bool DataBase::hash_compare_uuid(const std::string &user_UUID, size_t id)try
 {
 
     ScopedConnection conn(*conn_pool);
@@ -244,9 +258,12 @@ bool DataBase::hash_compare_uuid(const std::string &user_UUID, size_t id)
     }else{
         return false;
     }
+}catch(std::exception& ex){
+    std::cerr << "error in hash_compare_uuid: " << ex.what() << std::endl;
+    return false;
 }
 
-bool DataBase::hash_compare_password(const std::string &user_password, const std::string& email)
+bool DataBase::hash_compare_password(const std::string &user_password, const std::string& email)try
 {
     ScopedConnection conn(*conn_pool);
     pqxx::work work(*conn);
@@ -265,9 +282,12 @@ bool DataBase::hash_compare_password(const std::string &user_password, const std
         return false;
     }
 
+}catch(std::exception ex){
+    std::cerr << "error in hash_compare_password: " << ex.what() << std::endl;
+    return false;
 }
 
-std::string DataBase::get_uuid(const std::string &email)
+std::string DataBase::get_uuid(const std::string &email)try
 {
     try {
         ScopedConnection conn(*conn_pool);
@@ -282,6 +302,29 @@ std::string DataBase::get_uuid(const std::string &email)
     } catch (std::exception ex) {
         return "null";
     }
+}catch(std::exception ex){
+    std::cerr << "error in get_uuid: " << ex.what() << std::endl;
+    return "";
+}
+
+std::vector<std::pair<std::string, std::string>> DataBase::search_users(const std::string& query) {
+    std::vector<std::pair<std::string, std::string>> res;
+    std::shared_ptr<pqxx::connection> conn;
+    try {
+        conn = conn_pool->getConn();
+        pqxx::work work(*conn);
+        pqxx::result result = work.exec_params(
+            "SELECT uuid, username FROM users WHERE username ILIKE $1 LIMIT 50",
+            "%" + query + "%");
+        for(const auto& row : result) {
+            res.push_back({row[0].as<std::string>(), row[1].as<std::string>()});
+        }
+        conn_pool->release(conn);
+    } catch(std::exception& ex) {
+        std::cerr << "error in search_users: " << ex.what() << "\n";
+        if (conn) conn_pool->release(conn);
+    }
+    return res;
 }
 
 
@@ -313,17 +356,23 @@ ScopedConnection::ScopedConnection(ConnectionPool& pool_):
     conn = this->pool.getConn();
 }
 
-ScopedConnection::~ScopedConnection()
+ScopedConnection::~ScopedConnection()try
 {
     pool.release(conn);
+}catch(std::exception& ex){
+    std::cerr << "error in socpedConnection destructor: " << ex.what() << '\n';
 }
 
-std::shared_ptr<pqxx::connection> ScopedConnection::operator ->()
+std::shared_ptr<pqxx::connection> ScopedConnection::operator ->()try
 {
-    return pool.getConn();
+    return conn;
+}catch(std::exception& ex){
+    std::cerr << "error in operator ->: " << ex.what() << '\n';
 }
 
-pqxx::connection &ScopedConnection::operator*()
+pqxx::connection &ScopedConnection::operator*() try
 {
     return *conn;
+}catch(std::exception& ex){
+    std::cerr << "error in operator*: " << ex.what() << '\n';
 }
