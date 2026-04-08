@@ -1,7 +1,8 @@
 # Этап сборки (Builder)
 FROM ubuntu:22.04 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y build-essential cmake git curl zip unzip tar pkg-config ninja-build libssl-dev libpq-dev
+RUN apt-get update && apt-get install -y build-essential cmake git curl zip unzip tar pkg-config ninja-build libssl-dev libpq-dev bison
+
 
 WORKDIR /build
 RUN git clone https://github.com/microsoft/vcpkg.git && ./vcpkg/bootstrap-vcpkg.sh
