@@ -29,4 +29,4 @@ RUN apt-get update && apt-get install -y libssl-dev libpq5 && rm -rf /var/lib/ap
 WORKDIR /app
 # Для Music Server напишите streaming-audio-server
 COPY --from=builder /app/build/auth-manager-server /app/
-CMD["./auth-manager-server"]
+CMD ["./auth-manager-server"]
