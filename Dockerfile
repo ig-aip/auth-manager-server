@@ -6,7 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV VCPKG_MAX_CONCURRENCY=1
 
 # 1. Ставим нужные пакеты (ВНИМАНИЕ: убраны libssl-dev и libpq-dev, чтобы избежать конфликтов с vcpkg)
-RUN apt-get update && apt-get install -y build-essential cmake git curl zip unzip tar pkg-config ninja-build bison flex autoconf automake libtool m4 linux-libc-dev python3
+RUN apt-get update && apt-get install -y build-essential cmake git curl zip unzip tar pkg-config ninja-build bison flex autoconf automake libtool m4 linux-libc-dev python3 python-is-python3
 
 # 2. Скачиваем vcpkg
 WORKDIR /build
