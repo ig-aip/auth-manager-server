@@ -8,7 +8,6 @@
     "openssl",
     "boost-uuid",
     "nlohmann-json",
-    "libpqxx",
     "jwt-cpp"
   ]
 }
